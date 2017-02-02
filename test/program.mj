@@ -1,0 +1,25 @@
+program Program
+
+	// konstante
+	
+	const int a = 1, b = 2; 
+	const char c = 'c';
+	const bool d = true;
+	
+	// globalne promenljive
+	
+	int e, f[];
+	
+	// klase
+	class FirstClass {
+		int obj;
+	}
+	
+		
+				
+{
+	int firstMethod () {}
+	void secondMethod () int a,b;char c[],f; {
+		a=b+2;
+	}
+}	

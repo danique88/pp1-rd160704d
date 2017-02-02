@@ -1,0 +1,397 @@
+package rs.ac.bg.etf.pp1;
+
+import org.apache.log4j.*;
+import java_cup.runtime.*;
+import rs.etf.pp1.symboltable.Tab;
+import rs.etf.pp1.mj.runtime.*;
+import rs.etf.pp1.symboltable.concepts.*;
+
+import java.io.*;
+
+
+parser code {:
+
+	
+
+	int printCallCount = 0;
+	
+	Logger log = Logger.getLogger(getClass());
+   
+   
+    // slede redefinisani metodi za prijavu gresaka radi izmene teksta poruke
+     
+    public void report_fatal_error(String message, Object info) throws java.lang.Exception {
+      done_parsing();
+      report_error(message, info);
+    }
+  
+    public void syntax_error(Symbol cur_token) {
+        report_error("\nSintaksna greska", cur_token);
+    }
+  
+    public void unrecovered_syntax_error(Symbol cur_token) throws java.lang.Exception {
+        report_fatal_error("Fatalna greska, parsiranje se ne moze nastaviti", cur_token);
+    }
+
+    public void report_error(String message, Object info) {
+    	StringBuilder msg = new StringBuilder(message); 
+    	if (info instanceof Symbol)
+            msg.append (" na liniji ").append(((Symbol)info).left);
+        log.error(msg.toString());
+    }
+:}
+
+/*presrecemo dogadjaj dohvatanja svakog tokena*/
+scan with {:
+	Symbol s = this.getScanner().next_token();
+	if (s != null && s.value != null) 
+		log.info(s.toString() + " " + s.value.toString());
+	return s;
+:}
+
+
+//kod koji ce biti ugradjen u konstruktor parsera-Inicijalizacija Tabele simbola
+init with {:
+	Tab.init(); // Universe scope
+	
+	Tab.currentScope.addToLocals(new Obj(Obj.Type, "string", CUP$MJParser$actions.stringType));
+	Tab.currentScope.addToLocals(new Obj(Obj.Type, "bool", CUP$MJParser$actions.boolType));
+
+:}
+
+action code {:
+	boolean mainExist = false;
+:}
+
+terminal PROG, LBRACE, RBRACE, SEMI, COMMA, EQUAL, LSQUARE, RSQUARE, CLASS, EXTENDS, VOID;
+terminal LPAREN, RPAREN, STATIC, FOR, BREAK, CONTINUE, RETURN, PRINT, ELSE, IF, NEW, READ;
+terminal INCREMENT, DECREMENT, OR, AND, MINUS, DOT, ISEQUAL, NOTEQUAL, GREATER, GEQUAL,CONST;
+terminal LESS, LEQUAL, PLUS, PLUSEQUAL, MINUSEQUAL, MUL, DIV, MOD, MULEQUAL, DIVEQUAL, MODEQUAL;
+terminal Integer NUMBER ;
+terminal String IDENT, BOOLCONST;
+terminal Character CHARCONST;
+
+non terminal Program, DeclarationList, Declaration, ConstDecl;
+non terminal VarDecl, ClassDecl, Type, ConstList, ConstPart;
+non terminal Constant, VarList, VarPart, ExtendsType;
+non terminal MethodList, ReturnType, FormPars, StatementList;
+non terminal ParameterList, Parameter, Statement, Unmatched, Matched;
+non terminal DesignatorStatement, IfCondition, MatchedElse, ForLoopParams, Expr;  
+non terminal Designator, DesignatorStatementList, Condition, Assignop;
+non terminal ActPars, CondTerm, CondFact, Relop, AddopTermList;
+non terminal Addop, Term, MulopFactorList, Mulop, Factor;
+non terminal AddopRight, MulopRight, AddopLeft, MulopLeft, MethodDecl, VarDeclList, VarDeclListOpt;
+non terminal ConditionStatementList, ConditionStatement, ArrayParams, MethodDeclarationList;
+non terminal Obj ProgramName;
+
+Program ::= PROG ProgramName: i
+			{:
+				Tab.openScope();				
+			:}
+ 			 DeclarationList LBRACE MethodDeclarationList RBRACE 
+ 			 {:
+				//Code.dataSize = Tab.currentScope().getnVars();
+				//Tab.chainLocalSymbols(i); 
+				//i.setLocals(Tab.currentScope.getLocals());
+				Tab.closeScope();
+				if(!mainExist) 
+					parser.report_error("Program nema main funkciju!", null); 
+				
+			:}
+ 			 ;
+ 			 
+ ProgramName ::= IDENT:pName
+			{:
+				RESULT = Tab.insert(Obj.Prog, pName, Tab.noType);
+			:}
+			;
+
+DeclarationList ::= DeclarationList Declaration
+					|
+					/* epsilon */
+					;
+
+Declaration ::= ConstDecl
+				|
+				VarDecl
+				|
+				ClassDecl 
+				;
+
+ConstDecl ::= CONST Type ConstList SEMI;
+
+Type ::= IDENT ;
+
+ConstList ::= ConstList COMMA ConstPart
+			  |
+			  ConstPart
+			  ;
+			  
+ConstPart ::= IDENT EQUAL Constant;
+
+Constant ::= NUMBER
+			 |
+			 CHARCONST
+			 |
+			 BOOLCONST
+			 ;
+
+VarDeclList ::= VarDeclList VarDecl
+				|
+				VarDecl
+				;
+				
+VarDeclListOpt ::= 	VarDeclList
+					|
+					/* epsilon */
+					;
+
+  
+VarDecl ::= Type VarList SEMI
+			|
+			Type error SEMI {: parser.log.debug("Oporavak od greske u definiciji globalne promenljive (;)"); :}
+			|
+			Type error {: parser.log.debug("Oporavak od greske u definiciji lokalne promenljive ({)"); :}
+			;
+			
+	  
+VarList ::= VarList COMMA VarPart
+			|
+			VarPart
+			|
+			error COMMA VarPart
+			;	
+		
+VarPart	::= IDENT ArrayParams;
+			
+ArrayParams ::= LSQUARE RSQUARE
+				|
+				/*epsilon*/
+				;
+
+ClassDecl ::= CLASS IDENT ExtendsType LBRACE VarDeclListOpt MethodList RBRACE;
+	  
+ExtendsType ::= EXTENDS Type
+				|
+				/*epsilon*/
+				;
+				
+MethodList ::= LBRACE MethodDeclarationList RBRACE
+			   |
+			   /*epsilon*/
+			   ;
+			   
+MethodDeclarationList ::= MethodDeclarationList MethodDecl
+						  |
+						  /*epsilon*/
+						  ;
+						
+MethodDecl ::= STATIC ReturnType IDENT LPAREN FormPars RPAREN VarDeclListOpt LBRACE StatementList RBRACE
+			   |
+			   ReturnType IDENT LPAREN FormPars RPAREN VarDeclListOpt LBRACE StatementList RBRACE;
+
+	  		
+ReturnType ::= Type
+			   |
+			   VOID
+			   ;
+
+FormPars ::= ParameterList
+			 |
+			 /*epsilon*/
+			 |
+			 error
+			 ;
+				 
+ParameterList ::= ParameterList COMMA Parameter
+				 |
+				 error COMMA Parameter
+				 |
+				 Parameter
+				 ;
+			 
+Parameter ::= Type IDENT ArrayParams;
+			  
+
+				
+StatementList ::= StatementList Statement
+				 |
+				 /*epsilon*/
+				 ;
+				 
+Statement ::= Unmatched 
+			  | 
+			  Matched
+			  ;
+				
+Matched ::= DesignatorStatement SEMI
+			 |
+			 IfCondition MatchedElse Matched
+			 |
+			 FOR LPAREN ForLoopParams RPAREN Statement SEMI
+			 |
+			 BREAK SEMI
+			 |
+			 CONTINUE SEMI
+			 |
+			 RETURN Expr SEMI
+			 |
+			 RETURN SEMI
+			 |
+			 READ LPAREN Designator RPAREN SEMI
+			 |
+			 PRINT  LPAREN COMMA NUMBER RPAREN SEMI
+			 |
+			 PRINT LPAREN Expr RPAREN SEMI 
+			 |
+			 LBRACE StatementList RBRACE
+			 ;
+			 
+ForLoopParams ::= DesignatorStatementList SEMI ConditionStatementList SEMI DesignatorStatementList;
+
+DesignatorStatementList ::= DesignatorStatement
+							|
+							/*epsilon*/
+				 			;
+				 			
+ConditionStatementList ::= ConditionStatement
+							|
+							/*epsilon*/
+				 			;
+
+MatchedElse ::= Matched ELSE;
+
+IfCondition ::= IF LPAREN Condition RPAREN;
+
+Unmatched ::= IfCondition Statement
+			  |
+			  IfCondition MatchedElse Unmatched
+			  ;
+
+DesignatorStatement ::= Designator Assignop Expr
+						|
+						Designator LPAREN RPAREN
+						|
+		  				Designator LPAREN ActPars RPAREN
+		  				|
+		  				Designator INCREMENT
+		  				|
+		  				Designator DECREMENT;
+		  				
+ActPars ::= ActPars COMMA Expr
+			|
+			Expr
+			;
+			
+Condition ::= Condition OR CondTerm
+			  |
+			  CondTerm
+			  |
+			  error
+			  ;
+			  
+CondTerm ::= CondTerm AND CondFact
+			 |
+			 CondFact
+			 ;
+			 
+CondFact ::= Expr Relop Expr
+			 |
+			 Expr
+			 ;
+
+Expr ::= MINUS AddopTermList
+         |
+         AddopTermList
+         ;
+         
+AddopTermList ::= AddopTermList Addop Term
+				  |
+				  Term
+				  ;
+				  
+Term ::= Term Mulop Factor
+					|
+					Factor
+					;
+
+Factor ::= Designator LPAREN ActPars RPAREN
+			|
+			Designator
+		   |
+		   NUMBER
+		   |
+		   CHARCONST
+		   |
+		   NEW Type LSQUARE Expr RSQUARE
+		   |
+		   NEW Type LSQUARE error RSQUARE
+		   |
+		   NEW Type
+		   |
+		   LPAREN Expr RPAREN
+		   ;
+
+Designator ::= IDENT
+			   |  
+			   Designator DOT IDENT
+			   |
+			   Designator LSQUARE Expr RSQUARE
+			   |
+			   Designator LSQUARE error RSQUARE
+			   ;   	
+			   
+Assignop ::= EQUAL
+			 |
+			 AddopRight
+			 |
+			 MulopRight
+			 ;
+			 
+Relop ::= ISEQUAL
+		  |
+		  NOTEQUAL
+		  |
+		  GREATER
+		  |
+		  GEQUAL
+		  |
+		  LESS
+		  |
+		  LEQUAL
+		  ;
+			 
+Addop ::= AddopLeft
+		  |
+		  AddopRight
+		  ;
+		  
+AddopLeft ::= PLUS
+			  |
+			  MINUS
+			  ;
+			  
+AddopRight ::= PLUSEQUAL
+			   |
+			   MINUSEQUAL
+			   ;
+			   
+Mulop ::= MulopLeft
+		  |
+		  MulopRight
+		  ;
+		  
+MulopLeft ::= MUL
+			  |
+			  DIV
+			  |
+			  MOD
+			  ;
+			  
+MulopRight ::= MULEQUAL
+			   |
+			   DIVEQUAL
+			   |
+			   MODEQUAL
+			   ;
+
